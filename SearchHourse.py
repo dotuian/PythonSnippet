@@ -1,9 +1,12 @@
 #!/usr/bin/python
+# -*- coding: utf-8 -*-
+# filename: SearchHourse.py
 
 import urllib2
 import time
 import datetime
-import os.path
+import os
+import codecs
 
 import smtplib
 from email import Encoders
@@ -26,17 +29,20 @@ class SearchHourse :
         self.PORT = "587"
         self.USERNAME ="xxxx@xxxx.jp"
         self.PASSWARD = 'xxxx'
-        self.TO = ["to@xxxx.com"]
+        self.TO = ["xxxx@outlook.com"]
 
     def create_message(self, from_addr, to_addr, subject, body, mime=None, attach_file=None):
         """
+            create mail message
         """
         message = MIMEMultipart()
         message["From"] = from_addr
         message["To"] = to_addr
         message["Date"] = formatdate()
         message["Subject"] = subject
-        body = MIMEText(body)
+        #body = MIMEText(body, 'html')
+        #body = MIMEText(body.encode('utf-8'), 'html','utf-8')
+        body = MIMEText(body.encode('utf-8'), 'plain','utf-8')
         message.attach(body)
 
         if mime != None and attach_file != None:
@@ -52,6 +58,7 @@ class SearchHourse :
 
     def send(self, from_addr, to_addrs, msg):
         """
+            send mail message
         """
         smtpobj = smtplib.SMTP(self.SMTP, self.PORT)
         smtpobj.ehlo()
@@ -62,38 +69,89 @@ class SearchHourse :
         smtpobj.close()
 
     def search(self):
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        message = ""
+        count = 0
+
         homepage = 'http://www.ur-net.go.jp/akiya/tokyo/20_2810.html'
 
-        url = "http://chintai.sumai.ur-net.go.jp/kanto/html_list.ashx?{timestamp}&VIEW=1&TYPE=3&SCD=20&DCD=281&SKCD=0&SORT=%22%22&SORTYPE=%22%22&PRICE=%22%22&SYSTEM=%22%22&FLOORPLAN=%22%22&RANK=%22%22&KUID=URK1452840344209chrome"
-        url = url.replace("{timestamp}", str( time.time()))
+        url = "http://chintai.sumai.ur-net.go.jp/kanto/html_list.ashx"
+        url += "?{timestamp}&DCD=281&FLOORPLAN&KUID=URK1452840344209chrome&PAGE&PRICE"
+        url += "&RANK&SCD=20&SKCD=0&SORT&SORTYPE&SYSTEM&TYPE=3&VIEW=1"
+        url = url.replace("{timestamp}", str(time.time()))
 
-        path = "/home/shoukii/hy/" + datetime.datetime.now().strftime('%Y-%m-%d-%H') + ".hy"
-        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        if os.path.exists(path) :
-            print("%s : Already been sent \n\n"  %( now ))
-            return
+        if os.name == 'nt': #is windows
+            path = "d:/" + datetime.datetime.now().strftime('%Y-%m-%d') + ".tmp"
+        elif os.name == 'posix': # is linux
+            path = "/home/shoukii/hy/" + datetime.datetime.now().strftime('%Y-%m-%d') + ".tmp"
 
         content = urllib2.urlopen(url).read()
         soup = BeautifulSoup(content, "html.parser")
+
+        #割引制度有無
         for link in soup.select('dl.ft_system'):
-        #for link in soup.select('dl'):
-            value = link.find_all('dd')
-            if len(value) > 0 and not os.path.exists(path):
-                body = ', '.join(str(x) for x in value)
-                body += "\n\n"
-                body += homepage
+            # 割引制度の個数
+            count = len(link.find_all('dd'))
+            # 割引制度項目
+            message += ', '.join(x.string for x in link.select("dd"))
 
-                # create message
-                msg = self.create_message(self.USERNAME, self.TO[0], "Search House By Python", body)
-                print("%s \n %s \n\n"  %(now, msg.as_string()))
-                # send message
-                self.send(self.USERNAME, self.TO, msg)
+        #割引制度明細
+        for link in soup.select('ul.tb_list_type table.tbList'):
+            type = ""
+            rent=""
+            number=""
+            discount=False
+            # 間取り
+            for value in link.select('td.rm_type'):
+                type = value.string
+            # 家賃
+            for value in link.select('td.rm_yachin > span'):
+                rent = value.string
+            # 号棟
+            for value in link.select('td.rm_number > a > div.sp_i > div'):
+                number = value.get_text()[:-5]
+            # 割引対象
+            for value in link.select('td.rm_applay > p > a > img'):
+                discount = True
+            if discount :
+                message += "\r\n%s %s %s " %(type, number, rent)
 
-                #
-                file = open(path, 'w+')
+        #メール送信
+        if self.check(count, path, message):
+            # メール内容
+            msg = self.create_message(self.USERNAME, self.TO[0], "Search House By Python", message + "\r\n" + homepage)
+            # 送信
+            self.send(self.USERNAME, self.TO, msg)
+            print(msg.as_string())
+
+            #ファイルに書き込む
+            self.put_all_content(path, message)
+        else:
+            print("%s %s \r\n %s\r\n\r\n" %(now, 'No Send',  message))
 
     def __len__(self):
         return 0
+
+    def check(self, count, path, message):
+        if not os.path.exists(path) and count > 0:
+            return True
+
+        str = self.get_all_content(path)
+        if os.path.exists(path) and self.get_all_content(path) != message:
+            return True
+
+        return False
+
+    def get_all_content(self, path):
+        content = ""
+        for line in codecs.open(path, 'r', "utf_8") :
+            content += line
+        return content
+
+    def put_all_content(self, path, content):
+        file = codecs.open(path, 'w', "utf_8")
+        file.write(content)
+        file.close()
 
 if __name__ == "__main__":
     object = SearchHourse()
