@@ -1,12 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-# filename: SearchHourse.py
+# filename: using_class.py
 
 import urllib2
 import time
 import datetime
 import os
 import codecs
+import sys
 
 import smtplib
 from email import Encoders
@@ -28,8 +29,13 @@ class SearchHourse :
         self.SMTP = "mail.xxxx.jp"
         self.PORT = "587"
         self.USERNAME ="xxxx@xxxx.jp"
-        self.PASSWARD = 'xxxx'
-        self.TO = ["xxxx@outlook.com"]
+        self.PASSWARD = 'test1234'
+        self.TO = ["xxxx@xxxx.com", "xxxx@gmail.com"]
+
+        self.logpath = "./" + datetime.datetime.now().strftime('%Y-%m-%d') + ".tmp"
+
+        reload(sys)
+        sys.setdefaultencoding('utf-8')
 
     def create_message(self, from_addr, to_addr, subject, body, mime=None, attach_file=None):
         """
@@ -56,7 +62,7 @@ class SearchHourse :
 
         return message
 
-    def send(self, from_addr, to_addrs, msg):
+    def sendmail(self, from_addr, to_addrs, msg):
         """
             send mail message
         """
@@ -68,11 +74,7 @@ class SearchHourse :
         smtpobj.sendmail(from_addr, to_addrs, msg.as_string())
         smtpobj.close()
 
-    def search(self):
-        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        message = ""
-        count = 0
-
+    def analysis(self):
         homepage = 'http://www.ur-net.go.jp/akiya/tokyo/20_2810.html'
 
         url = "http://chintai.sumai.ur-net.go.jp/kanto/html_list.ashx"
@@ -80,16 +82,14 @@ class SearchHourse :
         url += "&RANK&SCD=20&SKCD=0&SORT&SORTYPE&SYSTEM&TYPE=3&VIEW=1"
         url = url.replace("{timestamp}", str(time.time()))
 
-        if os.name == 'nt': #is windows
-            path = "d:/" + datetime.datetime.now().strftime('%Y-%m-%d') + ".tmp"
-        elif os.name == 'posix': # is linux
-            path = "/home/shoukii/hy/" + datetime.datetime.now().strftime('%Y-%m-%d') + ".tmp"
-
         content = urllib2.urlopen(url).read()
         soup = BeautifulSoup(content, "html.parser")
 
+        message = ''
+        count = 0
         #割引制度有無
         for link in soup.select('dl.ft_system'):
+        #for link in soup.select('dl.ft_roomplan'):
             # 割引制度の個数
             count = len(link.find_all('dd'))
             # 割引制度項目
@@ -116,29 +116,45 @@ class SearchHourse :
             if discount :
                 message += "\r\n%s %s %s " %(type, number, rent)
 
+        #返回多个值
+        return count, self.create_message_body(message, homepage)
+
+    def search(self):
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        count, message = self.analysis();
+
         #メール送信
-        if self.check(count, path, message):
+        if self.check_sendmail(count, self.logpath, message):
             # メール内容
-            msg = self.create_message(self.USERNAME, self.TO[0], "Search House By Python", message + "\r\n" + homepage)
+            msg = self.create_message(self.USERNAME, self.TO[0], "大谷田団地", message)
             # 送信
-            self.send(self.USERNAME, self.TO, msg)
+            self.sendmail(self.USERNAME, self.TO, msg)
             print(msg.as_string())
 
             #ファイルに書き込む
-            self.put_all_content(path, message)
+            self.put_all_content(self.logpath, message)
         else:
             print("%s %s \r\n %s\r\n\r\n" %(now, 'No Send',  message))
 
-    def __len__(self):
-        return 0
+    def create_message_body(self, message, homepage):
+        """ """
+        if message == "":
+            message = "优惠的房子没有了！"
+        else:
+            message = "有优惠的房子出来了！" + "\r\n" + message
 
-    def check(self, count, path, message):
+        return message + "\r\n" + homepage
+
+    def check_sendmail(self, count, path, message):
+        """ """
         if not os.path.exists(path) and count > 0:
             return True
 
-        str = self.get_all_content(path)
-        if os.path.exists(path) and self.get_all_content(path) != message:
-            return True
+        if os.path.exists(path):
+            str = self.get_all_content(path)
+            if self.get_all_content(path) != message:
+                return True
 
         return False
 
@@ -152,6 +168,9 @@ class SearchHourse :
         file = codecs.open(path, 'w', "utf_8")
         file.write(content)
         file.close()
+
+    def __len__(self):
+        return 0
 
 if __name__ == "__main__":
     object = SearchHourse()
